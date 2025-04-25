@@ -28,7 +28,7 @@ bash demo/install_mfa.sh
 
 ![Beat Results](beat-new.png)
 
-This table shows the results of 1-speaker and all-speaker comparisons. RAG-Gesture refers to [**Retrieving Semantics from the Deep: an RAG Solution for Gesture Synthesis**](https://arxiv.org/abs/2412.06786), accepted by CVPR 2025.
+This table shows the results of 1-speaker and all-speaker comparisons. RAG-Gesture refers to [**Retrieving Semantics from the Deep: an RAG Solution for Gesture Synthesis**](https://arxiv.org/abs/2412.06786), accepted by CVPR 2025. The stats for 1-speaker is based on speaker-id of 2, 'scott' in order to be consistent with the previous SOTA methods. I directly copied the stats from the RAG-Gesture repo, which is different from the stats in the current paper. 
 
 ## Note
 - The statistics reported in the paper is based on 1-speaker with speaker-id of 2, 'scott' in order to be consistent with the previous SOTA methods.
