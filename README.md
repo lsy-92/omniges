@@ -2,7 +2,7 @@
 
 
 
-# GestureLSM: Latent Shortcut based Co-Speech Gesture Generation with Spatial-Temporal Modeling
+# GestureLSM: Latent Shortcut based Co-Speech Gesture Generation with Spatial-Temporal Modeling [ICCV 2025]
 
 
 # 📝 Release Plans
@@ -38,6 +38,7 @@ This table shows the results of 1-speaker and all-speaker comparisons. RAG-Gestu
 - I did not do hyperparameter tuning for all-speaker, but just use the same setting as 1-speaker.
 - You can add the speaker embedding if you want to have a better performance for all-speakers. I did not add it to make the code more aligned with the current 1-speaker setting and make the model capable of generating gesture for a novel speaker.
 - No gesture type information is used in the current version. The reason is that for a novel speaker and novel setting, you never know the gesture type. As a result, including this information is not realistic for real-world applications. However, if you just want to see a even better FGD, you can try to add this information.
+- Got accepted to ICCV 2025 !!!! Thanks to my co-authors, I will clean up the dirty code when I get a time for easiler re-implementation in the future.
 
 
 
