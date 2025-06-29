@@ -11,6 +11,9 @@
 - [x] Pretrained Models
 - [x] A web demo
 - [x] Training Code
+- [ ] Clean Code to make it look nicer
+- [ ] Support for [MeanFlow](https://arxiv.org/abs/2505.13447) (I assume it will be even faster, we will see it soon)
+- [ ] Merge with [Intentional-Gesture](https://github.com/andypinxinliu/Intentional-Gesture)
 
 # ⚒️ Installation
 
