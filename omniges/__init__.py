@@ -1,21 +1,26 @@
 """
-Omniges: Multimodal Gesture Generation Framework
+Omniges: Multimodal Text-Audio-Gesture Generation Framework
 
-A framework for converting audio, text, and other modalities to gesture sequences
-Built on top of OmniFlow pipeline with gesture streams replacing image streams
+OmniFlow 기반으로 이미지 스트림을 제스처 스트림으로 치환한 멀티모달 생성 프레임워크
+지원 태스크: T2G, G2T, A2G, G2A, T2A, A2T (6개 모든 조합)
+
+핵심 구성요소:
+- OmnigesFlowTransformerModel: OmniFlow 기반 멀티모달 transformer
+- GestureProcessor: 4x RVQVAE 제스처 인코더/디코더
+- OmnigesPipeline: 완전한 추론 파이프라인
+- train_omniges.py: 멀티태스크 학습 스크립트
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __author__ = "Omniges Team"
 
 # Import key components for easy access
-from .models.omniges_a2g import OmnigesA2GModel, create_omniges_a2g_model, A2GLoss
-from .dataloaders.beat_a2g_loader import BeatA2GDataset, create_a2g_dataloader
+from .models import OmnigesFlowTransformerModel, GestureProcessor
+from .pipelines import OmnigesPipeline, OmnigesGestureVAE
 
 __all__ = [
-    "OmnigesA2GModel",
-    "create_omniges_a2g_model", 
-    "A2GLoss",
-    "BeatA2GDataset",
-    "create_a2g_dataloader"
+    "OmnigesFlowTransformerModel",
+    "GestureProcessor", 
+    "OmnigesPipeline",
+    "OmnigesGestureVAE"
 ]

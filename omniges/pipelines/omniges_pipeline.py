@@ -65,7 +65,7 @@ from omniflow.models.audio_vae import load_audio_vae
 from omniflow.utils.scheduler import OmniFlowMatchEulerDiscreteScheduler
 
 # Import our gesture components
-from omniges.models.omniges_a2g import GestureProcessor
+from omniges.models.gesture_processor import GestureProcessor
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm

@@ -1,0 +1,5 @@
+# Dummy VQ-VAE config for utils/config.parse_args
+# This file is only loaded to satisfy OmegaConf; training here does not use its contents.
+vqvae:
+  enabled: false
+  note: dummy placeholder

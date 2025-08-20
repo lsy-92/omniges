@@ -33,9 +33,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Import Omniges components
-from omniges.models.omniges_flow import OmnigesFlowTransformerModel, GestureEmbedding
-from omniges.models.omniges_a2g import GestureProcessor, A2GLoss
-from omniges.pipelines.omniges_pipeline import OmnigesPipeline, OmnigesGestureVAE
+from omniges.models import OmnigesFlowTransformerModel, GestureProcessor
+from omniges.pipelines import OmnigesPipeline, OmnigesGestureVAE
 
 # Import OmniFlow components
 from omniflow.utils.ema import EMAModel
