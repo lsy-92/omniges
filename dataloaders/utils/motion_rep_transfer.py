@@ -174,13 +174,13 @@ def process_smplx_motion(pose_file, smplx_model, joint_mask, pose_fps, facial_re
     # Process shape data
     shape = np.repeat(pose_data["betas"].reshape(1, 300), pose_frames.shape[0], axis=0)
     
-    # Calculate contacts
-    contacts = calculate_foot_contacts(pose_data, smplx_model)
+    # Calculate contacts with same stride
+    contacts = calculate_foot_contacts(pose_data, smplx_model, stride=stride)
     
     # Apply joint masking and combine with contacts
     masked_pose = pose_frames * joint_mask
     masked_pose = masked_pose[:, joint_mask.astype(bool)]
-    if contacts is not None:
+    if contacts is not None and contacts.shape[0] == masked_pose.shape[0]:
         masked_pose = np.concatenate([masked_pose, contacts], axis=1)
     
     return {
@@ -191,21 +191,21 @@ def process_smplx_motion(pose_file, smplx_model, joint_mask, pose_fps, facial_re
         'facial': facial_frames if facial_frames is not None else np.array([-1])
     }
 
-def calculate_foot_contacts(pose_data, smplx_model):
+def calculate_foot_contacts(pose_data, smplx_model, stride=1):
     """Calculate foot contacts from pose data."""
     max_length = 128
     all_tensor = []
-    n = pose_data["poses"].shape[0]
+    n = pose_data["poses"].shape[0] // stride  # Apply stride to match processed frames
     
-    # Process in batches
+    # Process in batches with stride
     for i in range(n // max_length):
-        joints = process_joints_batch(pose_data, i, max_length, smplx_model)
+        joints = process_joints_batch(pose_data, i, max_length, smplx_model, stride=stride)
         all_tensor.append(joints)
     
     # Process remaining frames
     if n % max_length != 0:
         r = n % max_length
-        joints = process_joints_batch(pose_data, n // max_length, r, smplx_model, remainder=True)
+        joints = process_joints_batch(pose_data, n // max_length, r, smplx_model, remainder=True, stride=stride)
         all_tensor.append(joints)
     
     # Calculate velocities and contacts
@@ -217,23 +217,26 @@ def calculate_foot_contacts(pose_data, smplx_model):
     
     return contacts.transpose(1, 0)
 
-def process_joints_batch(pose_data, batch_idx, batch_size, smplx_model, remainder=False):
+def process_joints_batch(pose_data, batch_idx, batch_size, smplx_model, remainder=False, stride=1):
     """Process a batch of joints for contact calculation."""
-    start_idx = batch_idx * batch_size
-    end_idx = start_idx + batch_size
+    start_idx = batch_idx * batch_size * stride  # Apply stride to original indices
+    end_idx = start_idx + batch_size * stride
+    
+    # Use strided indices
+    indices = list(range(start_idx, end_idx, stride))[:batch_size]  # Ensure exact batch_size
     
     with torch.no_grad():
         return smplx_model(
-            betas=torch.from_numpy(pose_data["betas"]).cuda().float().repeat(batch_size, 1),
-            transl=torch.from_numpy(pose_data["trans"][start_idx:end_idx]).cuda().float(),
-            expression=torch.from_numpy(pose_data["expressions"][start_idx:end_idx]).cuda().float(),
-            jaw_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 66:69]).cuda().float(),
-            global_orient=torch.from_numpy(pose_data["poses"][start_idx:end_idx, :3]).cuda().float(),
-            body_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 3:21*3+3]).cuda().float(),
-            left_hand_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 25*3:40*3]).cuda().float(),
-            right_hand_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 40*3:55*3]).cuda().float(),
-            leye_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 69:72]).cuda().float(),
-            reye_pose=torch.from_numpy(pose_data["poses"][start_idx:end_idx, 72:75]).cuda().float(),
+            betas=torch.from_numpy(pose_data["betas"]).cuda().float().repeat(len(indices), 1),
+            transl=torch.from_numpy(pose_data["trans"][indices]).cuda().float(),
+            expression=torch.from_numpy(pose_data["expressions"][indices]).cuda().float(),
+            jaw_pose=torch.from_numpy(pose_data["poses"][indices, 66:69]).cuda().float(),
+            global_orient=torch.from_numpy(pose_data["poses"][indices, :3]).cuda().float(),
+            body_pose=torch.from_numpy(pose_data["poses"][indices, 3:21*3+3]).cuda().float(),
+            left_hand_pose=torch.from_numpy(pose_data["poses"][indices, 25*3:40*3]).cuda().float(),
+            right_hand_pose=torch.from_numpy(pose_data["poses"][indices, 40*3:55*3]).cuda().float(),
+            leye_pose=torch.from_numpy(pose_data["poses"][indices, 69:72]).cuda().float(),
+            reye_pose=torch.from_numpy(pose_data["poses"][indices, 72:75]).cuda().float(),
             return_verts=True,
             return_joints=True
-        )['joints'][:, (7,8,10,11), :].reshape(batch_size, 4, 3).cpu()
+        )['joints'][:, (7,8,10,11), :].reshape(len(indices), 4, 3).cpu()

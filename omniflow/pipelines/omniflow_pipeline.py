@@ -196,10 +196,17 @@ class OmniFlowPipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingleFileMixi
         tokenizer_one = CLIPTokenizer.from_pretrained(
             'laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K',
         )
-        tokenizer_two = CLIPTokenizer.from_pretrained(
-            path,
-            subfolder="tokenizer_2",
-        )
+        # Load second tokenizer: prefer local subfolder, fallback to public repo
+        try:
+            local_tok2 = os.path.join(path, "tokenizer_2")
+            if os.path.isdir(local_tok2):
+                tokenizer_two = CLIPTokenizer.from_pretrained(local_tok2, local_files_only=True)
+            else:
+                raise FileNotFoundError(local_tok2)
+        except Exception:
+            tokenizer_two = CLIPTokenizer.from_pretrained(
+                'laion/CLIP-ViT-bigG-14-laion2B-39B-b160k'
+            )
         tokenizer_three = T5TokenizerFast.from_pretrained(
                 'google/flan-t5-large',
         )
@@ -207,10 +214,17 @@ class OmniFlowPipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingleFileMixi
             'laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K',
             projection_dim=768
         )
-        text_encoder_two = CLIPTextModelWithProjection.from_pretrained(
-            path,
-            subfolder="text_encoder_2",
-        )
+        # Load second text encoder: prefer local, fallback to public repo
+        try:
+            local_te2 = os.path.join(path, "text_encoder_2")
+            if os.path.isdir(local_te2):
+                text_encoder_two = CLIPTextModelWithProjection.from_pretrained(local_te2, local_files_only=True)
+            else:
+                raise FileNotFoundError(local_te2)
+        except Exception:
+            text_encoder_two = CLIPTextModelWithProjection.from_pretrained(
+                'laion/CLIP-ViT-bigG-14-laion2B-39B-b160k'
+            )
         text_encoder_three = T5EncoderModel.from_pretrained('google/flan-t5-large')
         text_encoder_three.eval()
         text_encoder_two.eval()
@@ -219,19 +233,25 @@ class OmniFlowPipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingleFileMixi
             path,
             subfolder="vae",
         )
-        text_vae_tokenizer=AutoTokenizer.from_pretrained(
-            path,
-            subfolder="vae_tokenizer",
-        )
-        text_vae_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        config = AutoConfig.from_pretrained(os.path.join(path,"text_vae"))
-        text_vae  = LLamaForLatentConnector._from_config(
-                                                        config,
-                                                        torch_dtype=torch.bfloat16)
-        text_vae.prepare_tokenizer(text_vae_tokenizer)
-        text_vae.set_encoder(text_encoder_three)
-        text_vae.prepare_tokenizer(text_vae_tokenizer)
-        text_vae.set_encoder(text_encoder_three)
+        # Load text VAE (optional). Environments without nn.RMSNorm may fail; fallback to None.
+        text_vae = None
+        text_vae_tokenizer = None
+        try:
+            local_vae_tok = os.path.join(path, "vae_tokenizer")
+            if os.path.isdir(local_vae_tok):
+                text_vae_tokenizer = AutoTokenizer.from_pretrained(local_vae_tok, local_files_only=True)
+                text_vae_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            local_text_vae = os.path.join(path, "text_vae")
+            if os.path.isdir(local_text_vae):
+                config = AutoConfig.from_pretrained(local_text_vae, local_files_only=True)
+                text_vae  = LLamaForLatentConnector._from_config(
+                                                            config,
+                                                            torch_dtype=torch.bfloat16)
+                if text_vae_tokenizer is not None:
+                    text_vae.prepare_tokenizer(text_vae_tokenizer)
+                text_vae.set_encoder(text_encoder_three)
+        except Exception as e:
+            print(f"[OmniFlowPipeline] text_vae load skipped: {e}")
         image_encoder = CLIPVisionModelWithProjection.from_pretrained('laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K',projection_dim=768)
         image_processor=  CLIPImageProcessor.from_pretrained('laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K')
         transformer = OmniFlowTransformerModel.from_config(
@@ -351,6 +371,8 @@ class OmniFlowPipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingleFileMixi
         audio_encoder=None,
         mm_encoder=None,
         cfg_mode='old',
+        gesture_vae=None,
+        mode: str = 'image',
     ):
         super().__init__()
         self.text_x0 = text_x0
@@ -399,9 +421,83 @@ class OmniFlowPipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingleFileMixi
         self.audio_processor = audio_processor
         self.audio_processor_clip = audio_processor_clip
         self.text_vae = text_vae
+        # Gesture mode support
+        self.gesture_vae = gesture_vae
+        self.mode = mode
         
     def call_mm_encoder(self,**kwargs):
         return self.mm_encoder(kwargs)
+
+    def encode_prompt_with_audio(
+        self,
+        prompt: Union[str, List[str]] = None,
+        audio_paths: Optional[List[str]] = None,
+        num_images_per_prompt: int = 1,
+        device: Optional[torch.device] = None,
+        do_classifier_free_guidance: bool = False,
+        use_t5: bool = False,
+        add_token_embed: bool = False,
+        max_sequence_length: int = 128,
+    ):
+        """Build prompt embeddings and append one audio token per sample using LanguageBindAudio.
+
+        - Text embeddings are built via existing encode_prompt path (CLIP×2(+T5)).
+        - Audio embeddings are extracted by self.audio_encoder on processed spectrograms
+          and appended as a single token along the sequence dimension (after padding/trunc to dim).
+        - For negative branch (CFG), a zero audio token is appended.
+        """
+        device = device or self._execution_device
+
+        # Build text embeddings using existing util
+        prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = self.encode_prompt(
+            prompt=prompt,
+            num_images_per_prompt=num_images_per_prompt,
+            device=device,
+            do_classifier_free_guidance=do_classifier_free_guidance,
+            use_t5=use_t5,
+            add_token_embed=add_token_embed,
+            max_sequence_length=max_sequence_length,
+        )
+
+        if audio_paths is None or len(audio_paths) == 0:
+            return prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
+
+        # Process audio to features
+        with torch.no_grad():
+            proc = self.audio_processor_clip(images=audio_paths, return_tensors="pt")
+            pixel_values = proc["pixel_values"].to(device)
+            audio_feats = self.audio_encoder.get_image_features(pixel_values=pixel_values)
+            # Map to text token dim by pad/trunc
+            tok_dim = prompt_embeds.shape[-1]
+            if audio_feats.shape[-1] < tok_dim:
+                pad = torch.zeros((audio_feats.shape[0], tok_dim - audio_feats.shape[-1]), device=device, dtype=audio_feats.dtype)
+                audio_tok = torch.cat([audio_feats, pad], dim=-1)
+            else:
+                audio_tok = audio_feats[:, :tok_dim]
+            audio_tok = audio_tok.to(prompt_embeds.dtype).unsqueeze(1)
+
+        # Append audio token to positive branch
+        prompt_embeds = torch.cat([prompt_embeds, audio_tok], dim=1)
+        # Append zero token to negative branch if CFG
+        if do_classifier_free_guidance and negative_prompt_embeds is not None:
+            zero_tok = torch.zeros_like(audio_tok)
+            negative_prompt_embeds = torch.cat([negative_prompt_embeds, zero_tok], dim=1)
+
+        return prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
+
+    # ===== Gesture helpers =====
+    @torch.no_grad()
+    def encode_gesture(self, pose_seq: torch.Tensor):
+        """Encode pose sequence [B,T,D] into transformer latents [B,C,H,W] using gesture_vae adapter."""
+        if self.gesture_vae is None:
+            raise RuntimeError("gesture_vae is not set. Pass adapter in pipeline init.")
+        return self.gesture_vae.encode(pose_seq)
+
+    @torch.no_grad()
+    def decode_gesture(self, latents_2d: torch.Tensor, T_out: int, D_out: int = 333):
+        if self.gesture_vae is None:
+            raise RuntimeError("gesture_vae is not set. Pass adapter in pipeline init.")
+        return self.gesture_vae.decode(latents_2d, T_out=T_out, D_out=D_out)
 
     def _get_t5_prompt_embeds(
         self,

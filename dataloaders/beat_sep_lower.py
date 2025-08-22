@@ -29,7 +29,8 @@ class CustomDataset(Dataset):
     def __init__(self, args, loader_type, augmentation=None, kwargs=None, build_cache=True):
         self.args = args
         self.loader_type = loader_type
-        self.rank = dist.get_rank()
+        # Safe rank fallback when torch.distributed not initialized
+        self.rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
 
         self.ori_stride = self.args.stride
         self.ori_length = self.args.pose_length
@@ -67,8 +68,25 @@ class CustomDataset(Dataset):
         self.tar_joint_list = joints_list[self.args.tar_joints]
 
         if self.args.word_rep is not None:
-            with open(f"{self.args.data_path}weights/vocab.pkl", 'rb') as f:
-                self.lang_model = pickle.load(f)
+            vocab_path = f"{self.args.data_path}weights/vocab.pkl"
+            if os.path.exists(vocab_path):
+                try:
+                    with open(vocab_path, 'rb') as f:
+                        self.lang_model = pickle.load(f)
+                except Exception:
+                    # Fallback: map pickled Vocab from __main__ to actual module
+                    from dataloaders.build_vocab import Vocab
+                    class RenameUnpickler(pickle.Unpickler):
+                        def find_class(self, module, name):
+                            if name == 'Vocab':
+                                return Vocab
+                            return super().find_class(module, name)
+                    with open(vocab_path, 'rb') as f:
+                        self.lang_model = RenameUnpickler(f).load()
+            else:
+                logger.warning(f"vocab.pkl not found at {vocab_path}; disabling word_rep.")
+                self.lang_model = None
+                self.args.word_rep = None
         
     def _init_joint_masks(self):
         """Initialize joint masks based on pose representation."""

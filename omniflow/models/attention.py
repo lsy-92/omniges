@@ -1,5 +1,13 @@
 from diffusers.models.attention import *
 from diffusers.models.attention_processor import *
+from diffusers.models.normalization import AdaLayerNormContinuous, AdaLayerNormZero
+
+# Fallback alias if SD35AdaLayerNormZeroX is missing in current diffusers
+try:
+    SD35AdaLayerNormZeroX  # type: ignore[name-defined]
+except NameError:
+    class SD35AdaLayerNormZeroX(AdaLayerNormZero):
+        pass
 
 
 @maybe_allow_in_graph
@@ -1031,4 +1039,3 @@ class JointTransformerBlock(nn.Module):
         if  self.audio_output:
             res.append(audio_hidden_states)
         return res
-
